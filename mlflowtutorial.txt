@@ -1,0 +1,140 @@
+########### MLFLOW Implementation
+
+Step 1 - Get MLflow
+MLflow is available on PyPI.
+
+Installing Stable Release
+If you don't already have it installed on your system, you can install it with:
+
+pip install mlflow
+
+Installing a Release Candidate (RC)
+If you are eager to test out new features and validate that an upcoming release of MLflow will work well in your infrastructure, installing the latest release candidate may be of interest to you.
+
+note
+Release Candidate builds are not recommended for actual use, rather they are intended only for testing validation.
+
+To install the latest version of MLflow's release candidates for a given version, see the example below that uses MLflow 2.14.0 as an example:
+
+# install the latest release candidate
+pip install --pre mlflow
+
+####
+Step 2 - Start a Tracking Server
+Using a Managed MLflow Tracking Server
+For details on options for using a managed MLflow Tracking Server, including how to create a Databricks Free Trial account with managed MLflow, see the guide for tracking server options.
+
+(Optional) Run a local Tracking Server
+We're going to start a local MLflow Tracking Server, which we will connect to for logging our data for this quickstart. From a terminal, run:
+
+mlflow server --host 127.0.0.1 --port 8080
+
+note
+You can choose any port that you would like, provided that it's not already in use.
+
+Set the Tracking Server URI (if not using a Databricks Managed MLflow Tracking Server)
+If you're using a managed MLflow Tracking Server that is not provided by Databricks, or if you're running a local tracking server, ensure that you set the tracking server's uri using:
+
+import mlflow
+
+mlflow.set_tracking_uri(uri="http://<host>:<port>")
+
+If this is not set within your notebook or runtime environment, the runs will be logged to your local file system.
+###
+Step 3 - Train a model and prepare metadata for logging
+In this section, we're going to log a model with MLflow. A quick overview of the steps are:
+
+Load and prepare the Iris dataset for modeling.
+Train a Logistic Regression model and evaluate its performance.
+Prepare the model hyperparameters and calculate metrics for logging.
+import mlflow
+from mlflow.models import infer_signature
+
+import pandas as pd
+from sklearn import datasets
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+
+
+# Load the Iris dataset
+X, y = datasets.load_iris(return_X_y=True)
+
+# Split the data into training and test sets
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+
+# Define the model hyperparameters
+params = {
+    "solver": "lbfgs",
+    "max_iter": 1000,
+    "multi_class": "auto",
+    "random_state": 8888,
+}
+
+# Train the model
+lr = LogisticRegression(**params)
+lr.fit(X_train, y_train)
+
+# Predict on the test set
+y_pred = lr.predict(X_test)
+
+# Calculate metrics
+accuracy = accuracy_score(y_test, y_pred)
+###
+Step 4 - Log the model and its metadata to MLflow
+In this next step, we're going to use the model that we trained, the hyperparameters that we specified for the model's fit, and the loss metrics that were calculated by evaluating the model's performance on the test data to log to MLflow.
+
+The steps that we will take are:
+
+Initiate an MLflow run context to start a new run that we will log the model and metadata to.
+Log model parameters and performance metrics.
+Tag the run for easy retrieval.
+Register the model in the MLflow Model Registry while logging (saving) the model.
+note
+While it can be valid to wrap the entire code within the start_run block, this is not recommended. If there as in issue with the training of the model or any other portion of code that is unrelated to MLflow-related actions, an empty or partially-logged run will be created, which will necessitate manual cleanup of the invalid run. It is best to keep the training execution outside of the run context block to ensure that the loggable content (parameters, metrics, artifacts, and the model) are fully materialized prior to logging.
+
+######
+Step 5 - Load the model as a Python Function (pyfunc) and use it for inference
+After logging the model, we can perform inference by:
+
+Loading the model using MLflow's pyfunc flavor.
+Running Predict on new data using the loaded model.
+note
+The iris training data that we used was a numpy array structure. However, we can submit a Pandas DataFrame as well to the predict method, as shown below.
+
+# Load the model back for predictions as a generic Python Function model
+loaded_model = mlflow.pyfunc.load_model(model_info.model_uri)
+
+predictions = loaded_model.predict(X_test)
+
+iris_feature_names = datasets.load_iris().feature_names
+
+result = pd.DataFrame(X_test, columns=iris_feature_names)
+result["actual_class"] = y_test
+result["predicted_class"] = predictions
+
+result[:4]
+
+##################################
+
+Creating Experiments
+In the previous section, we became familiar with the MLflow Client and its search_experiments API. Before we get into creating experiments and adding metadata tags to them, let's take a brief look at the MLflow UI.
+
+In the first section of this tutorial, we started the MLflow Tracking Server from a command prompt, specifying the host as 127.0.0.1 and the port as 8080. Let's go to the UI and see what the Default Experiment looks like.
+
+Notes on Tags vs Experiments
+While MLflow does provide a default experiment, it primarily serves as a 'catch-all' safety net for runs initiated without a specified active experiment. However, it's not recommended for regular use. Instead, creating unique experiments for specific collections of runs offers numerous advantages, as we'll explore below.
+
+Benefits of Defining Unique Experiments:
+
+Enhanced Organization: Experiments allow you to group related runs, making it easier to track and compare them. This is especially helpful when managing numerous runs, as in large-scale projects.
+
+Metadata Annotation: Experiments can carry metadata that aids in organizing and associating runs with larger projects.
+
+Consider the scenario below: we're simulating participation in a large demand forecasting project. This project involves building forecasting models for various departments in a chain of grocery stores, each housing numerous products. Our focus here is the 'produce' department, which has several distinct items, each requiring its own forecast model. Organizing these models becomes paramount to ensure easy navigation and comparison.
+
+When Should You Define an Experiment?
+
+The guiding principle for creating an experiment is the consistency of the input data. If multiple runs use the same input dataset (even if they utilize different portions of it), they logically belong to the same experiment. For other hierarchical categorizations, using tags is advisable.
